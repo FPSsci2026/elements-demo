@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <title>The Lost Elements Quest — Workshop Demo</title>
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Lost Elements Demo" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <script src="./demo-data.enc.js?v=demo-offline-2"></script>
+    <link rel="stylesheet" href="./styles.css?v=demo-offline-2" />
+    <style>
+      /* The demo has no login, so there is nothing to log out of. */
+      [data-action="student-signout"] { display: none !important; }
+      #demo-tools { position: fixed; left: 12px; bottom: 12px; z-index: 99999; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font: 600 15px system-ui, -apple-system, "Segoe UI", sans-serif; }
+      #demo-panel { display: none; flex-direction: column; gap: 8px; width: 330px; max-height: 78vh; overflow-y: auto; background: #ffffff; color: #1f2937; border: 2px solid #1f3a5f; border-radius: 14px; padding: 12px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); }
+      #demo-panel.open { display: flex; }
+      #demo-panel h3 { margin: 4px 0 0; font-size: 13px; letter-spacing: 0.04em; text-transform: uppercase; color: #1f3a5f; }
+      #demo-panel p { margin: 0; font-weight: 500; font-size: 13px; color: #475569; }
+      #demo-panel button { font: inherit; border: none; border-radius: 10px; padding: 12px 12px; text-align: left; cursor: pointer; background: #e6ecf5; color: #1f3a5f; min-height: 44px; }
+      #demo-panel button.go { background: #1f3a5f; color: #fff; }
+      #demo-panel button.warn { background: #fde8e8; color: #9b1c1c; }
+      #demo-codes { display: none; background: #fff8e1; border-radius: 10px; padding: 10px 12px; font-weight: 600; font-size: 14px; line-height: 1.7; }
+      #demo-codes.open { display: block; }
+      #demo-toggle { background: #1f3a5f; color: #fff; border: 2px solid #fff; border-radius: 999px; padding: 12px 18px; font: inherit; cursor: pointer; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4); min-height: 46px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="gate" style="display:none;position:fixed;inset:0;z-index:100000;align-items:center;justify-content:center;background:#16324f;font-family:system-ui,-apple-system,'Segoe UI',sans-serif">
+      <form id="gate-form" style="background:#fff;border-radius:18px;padding:28px 26px;width:min(420px,90vw);box-shadow:0 10px 40px rgba(0,0,0,.45);text-align:center">
+        <h1 style="margin:0 0 6px;font-size:22px;color:#1f3a5f">The Lost Elements Quest</h1>
+        <p style="margin:0 0 18px;color:#475569;font-size:15px">Workshop demo. Enter the workshop passcode to begin.</p>
+        <input id="gate-input" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Passcode" style="width:100%;box-sizing:border-box;font-size:18px;padding:14px;border:2px solid #94a3b8;border-radius:12px;margin-bottom:12px" />
+        <button type="submit" style="width:100%;font-size:18px;font-weight:700;padding:14px;border:none;border-radius:12px;background:#1f3a5f;color:#fff;cursor:pointer">Open the demo</button>
+        <p id="gate-msg" style="margin:12px 0 0;color:#b91c1c;font-size:15px;min-height:20px"></p>
+      </form>
+    </div>
+
+    <div id="demo-tools">
+      <div id="demo-panel" role="dialog" aria-label="Workshop demo menu">
+        <p>DEMO: nothing here is saved to the school portal. Each iPad keeps its own progress.</p>
+        <h3>Jump to a station (starts it fresh)</h3>
+        <button class="go" data-demo="start" data-station="fire">Fire Peak</button>
+        <button class="go" data-demo="start" data-station="earth">Earth Grove</button>
+        <button class="go" data-demo="start" data-station="water">Water Cove</button>
+        <button class="go" data-demo="start" data-station="metal">Metal Forge</button>
+        <button class="go" data-demo="nexus">The Final Nexus</button>
+        <h3>This station</h3>
+        <button data-demo="skip">Skip ahead: mark done and go to the next station</button>
+        <button data-demo="restart">Restart this station</button>
+        <h3>Codes (for the clue hunt)</h3>
+        <button data-demo="codes">Show / hide the codes</button>
+        <div id="demo-codes"></div>
+        <h3>Start over</h3>
+        <button class="warn" data-demo="reset">Clear this iPad's demo and begin again</button>
+      </div>
+      <button id="demo-toggle" type="button" aria-expanded="false">☰ Demo menu</button>
+    </div>
+    <script>
+      (function () {
+        var STUDENT_NAME = "Demo Team";
+        var ready = false;
+
+        function el(id) { return document.getElementById(id); }
+
+        function station(id) {
+          return (appState.sessions[0].quest.stations || []).filter(function (s) { return s.id === id; })[0];
+        }
+
+        function demoStudent() { return appState.students[0]; }
+        function demoSession() { return appState.sessions[0]; }
+
+        function seed(data) {
+          var now = new Date().toISOString();
+          var session = {
+            id: createId("session"), name: "Teacher Workshop Demo", className: "DEMO", teamOptions: [],
+            status: "open", finalNexusCode: data.finalNexusCode, questDate: now, createdAt: now, updatedAt: now,
+            quest: data.quest, stationOrder: [], crews: [],
+            collaboration: { peerFeedback: [], teacherObservations: [], consolidatedFeedback: [] },
+            classMagicCodes: {}, loginMode: "team",
+          };
+          normalizeQuest(session);
+          normalizeSessionCollaboration(session);
+          normalizeSessionCrews(session);
+          var student = {
+            id: createId("student"), name: STUDENT_NAME, className: "DEMO", teamName: STUDENT_NAME, pin: "DEMO",
+            loginStatus: "offline", lastSeenAt: "", assignedSessionIds: [session.id], activeSessionId: session.id,
+            sessionProgress: {}, collaborationRecords: {}, rosterUpdatedAt: Date.now(),
+          };
+          student.sessionProgress[session.id] = buildFreshProgress(session);
+          appState.sessions = [session];
+          appState.students = [student];
+          ensureTeamCrew(student, session);
+          saveState();
+        }
+
+        function enter() {
+          var student = demoStudent();
+          var session = demoSession();
+          if (!student || !session) { return; }
+          student.loginStatus = "online";
+          student.activeSessionId = session.id;
+          uiState.activeTeacherId = "";
+          uiState.activeStudentId = student.id;
+          uiState.activeSessionId = session.id;
+          uiState.stationModal = "";
+          uiState.activePostQuestActivityId = "";
+          saveActiveStudentSession(student.id);
+          var crew = ensureTeamCrew(student, session);
+          if (crew && !crew.startStationId) { crew.startStationId = session.quest.stations[0].id; }
+          applyCrewStartStationToStudent(student, session.id, crew.startStationId);
+          uiState.screen = "studentPortal";
+          saveState();
+          renderApp();
+        }
+
+        function startAt(stationId) {
+          var student = demoStudent();
+          var session = demoSession();
+          student.sessionProgress[session.id] = buildFreshProgress(session);
+          var crew = ensureTeamCrew(student, session);
+          crew.startStationId = stationId;
+          enter();
+        }
+
+        function skipAhead() {
+          var progress = getProgress(demoStudent(), demoSession().id);
+          if (progress.currentPage === "finalNexus" || progress.finalNexus.finalPowerUnlocked) { return; }
+          markStationCompleteInProgress(progress, demoSession());
+          advanceProgressAfterCurrentStation(progress, demoSession());
+          progress.lastPageEnteredAt = Date.now();
+          recalculateQuestTotals(progress, demoSession());
+          uiState.stationModal = "";
+          saveState();
+          renderApp();
+        }
+
+        function restartStation() {
+          var session = demoSession();
+          var progress = getProgress(demoStudent(), session.id);
+          if (progress.currentPage === "finalNexus" || progress.finalNexus.finalPowerUnlocked) { return; }
+          var current = getCurrentStation(progress, session);
+          progress.stationStates[current.id] = Object.assign({}, buildFreshProgress(session).stationStates[current.id], { startedAt: "" });
+          progress.currentPage = "station";
+          progress.pendingClueStationId = "";
+          progress.lastPageEnteredAt = Date.now();
+          recalculateQuestTotals(progress, session);
+          uiState.stationModal = "";
+          saveState();
+          renderApp();
+        }
+
+        function goNexus() {
+          var student = demoStudent();
+          var session = demoSession();
+          student.sessionProgress[session.id] = buildFreshProgress(session);
+          var progress = getProgress(student, session.id);
+          session.quest.stations.forEach(function (st) {
+            var s = progress.stationStates[st.id];
+            s.taskSubmission = s.taskSubmission || "Demo: station skipped.";
+            s.stationQuestionCorrect = true;
+            s.clueUnlocked = true;
+            s.clueUnlockedAt = new Date().toISOString();
+            s.tokenCollected = true;
+            s.completed = true;
+            s.completedAt = new Date().toISOString();
+          });
+          progress.currentStationIndex = session.quest.stations.length - 1;
+          progress.currentPage = "finalNexus";
+          progress.lastPageEnteredAt = Date.now();
+          recalculateQuestTotals(progress, session);
+          enter();
+        }
+
+        function showCodes() {
+          var box = el("demo-codes");
+          var lines = (demoSession().quest.stations || []).map(function (st) {
+            return "<div>" + st.name + ": <strong>" + st.code + "</strong></div>";
+          });
+          if (window.DEMO_EXTRA && window.DEMO_EXTRA.metalSequencing) {
+            lines.push("<div>Metal Forge sequencing code: <strong>" + window.DEMO_EXTRA.metalSequencing + "</strong></div>");
+          }
+          lines.push("<div>Final Nexus: <strong>" + demoSession().finalNexusCode + "</strong></div>");
+          lines.push("<div style=\"font-weight:500;font-size:12px;color:#475569\">Codes are not case-sensitive.</div>");
+          box.innerHTML = lines.join("");
+          box.classList.toggle("open");
+        }
+
+        function resetAll() {
+          if (!confirm("Clear this iPad's demo and begin again?")) { return; }
+          try { localStorage.removeItem("lost-elements-demo::portal::v1"); } catch (e) {}
+          try { sessionStorage.clear(); } catch (e) {}
+          location.reload();
+        }
+
+        document.addEventListener("click", function (e) {
+          var t = e.target;
+          if (!t || !t.closest) { return; }
+          if (t.closest("#demo-toggle")) {
+            var panel = el("demo-panel");
+            panel.classList.toggle("open");
+            el("demo-toggle").setAttribute("aria-expanded", panel.classList.contains("open") ? "true" : "false");
+            return;
+          }
+          var btn = t.closest("[data-demo]");
+          if (!btn || !ready) { return; }
+          var action = btn.getAttribute("data-demo");
+          if (action === "start") { startAt(btn.getAttribute("data-station")); el("demo-panel").classList.remove("open"); }
+          else if (action === "nexus") { goNexus(); el("demo-panel").classList.remove("open"); }
+          else if (action === "skip") { skipAhead(); el("demo-panel").classList.remove("open"); }
+          else if (action === "restart") { restartStation(); el("demo-panel").classList.remove("open"); }
+          else if (action === "codes") { showCodes(); }
+          else if (action === "reset") { resetAll(); }
+        });
+
+        function boot() {
+          var data = window.DEMO_QUEST_DATA;
+          if (!appState.sessions.length || appState.sessions[0].className !== "DEMO") { seed(JSON.parse(JSON.stringify(data))); }
+          ready = true;
+          enter();
+          // If someone taps "Log out" (or a page sends them to a login screen), bring them straight back in.
+          setInterval(function () {
+            if (ready && uiState.screen !== "studentPortal") { enter(); }
+          }, 700);
+        }
+
+        function whenAppReady(tries) {
+          tries = tries || 0;
+          if (typeof appState !== "undefined" && typeof renderApp === "function") { boot(); }
+          else if (tries < 400) { setTimeout(function () { whenAppReady(tries + 1); }, 25); }
+        }
+
+
+        // Passcode gate: the app and quest are locked; nothing runs until the passcode unlocks them.
+        function b64(str) { var bin = atob(str), a = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) { a[i] = bin.charCodeAt(i); } return a; }
+        function loadText(text, done) {
+          var s = document.createElement("script");
+          s.src = URL.createObjectURL(new Blob([text], { type: "text/javascript" }));
+          s.onload = done;
+          document.body.appendChild(s);
+        }
+        async function unlock(pass) {
+          var d = window.DEMO_ENC;
+          var mat = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+          var key = await crypto.subtle.deriveKey({ name: "PBKDF2", salt: b64(d.salt), iterations: d.iter, hash: "SHA-256" }, mat, { name: "AES-GCM", length: 256 }, false, ["decrypt"]);
+          var quest = new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(d.quest.iv) }, key, b64(d.quest.data)));
+          var app = new TextDecoder().decode(await crypto.subtle.decrypt({ name: "AES-GCM", iv: b64(d.app.iv) }, key, b64(d.app.data)));
+          loadText(quest, function () { loadText(app, function () { whenAppReady(0); }); });
+        }
+        function showGate(message) {
+          document.getElementById("gate").style.display = "flex";
+          document.getElementById("gate-msg").textContent = message || "";
+        }
+        async function tryPass(pass, silent) {
+          if (!window.crypto || !crypto.subtle) { showGate("Please open the demo from its https web address."); return; }
+          try {
+            await unlock(pass);
+            try { localStorage.setItem("lost-elements-demo::passcode", pass); } catch (e) {}
+            document.getElementById("gate").style.display = "none";
+          } catch (e) {
+            try { localStorage.removeItem("lost-elements-demo::passcode"); } catch (e2) {}
+            showGate(silent ? "" : "That passcode is not right. Please try again.");
+          }
+        }
+        document.getElementById("gate-form").addEventListener("submit", function (e) {
+          e.preventDefault();
+          tryPass(document.getElementById("gate-input").value.trim(), false);
+        });
+        var saved = "";
+        try { saved = localStorage.getItem("lost-elements-demo::passcode") || ""; } catch (e) {}
+        if (saved) { tryPass(saved, true); } else { showGate(""); }
+
+      })();
+    </script>
+
+    <script>
+      // After the first load, the browser keeps everything, so the demo works with no internet.
+      if ("serviceWorker" in navigator && location.protocol.indexOf("http") === 0) {
+        navigator.serviceWorker.register("./sw.js").catch(function () {});
+      }
+    </script>
+  </body>
+</html>
